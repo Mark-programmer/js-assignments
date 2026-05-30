@@ -17,10 +17,18 @@
  *  ]
  */
 function createCompassPoints() {
-    throw new Error('Not implemented');
-    var sides = ['N','E','S','W'];  // use array of cardinal directions only!
+    const sides = ['N', 'E', 'S', 'W'];  // use array of cardinal directions only!
+    const abbreviations = [
+        'N', 'NbE', 'NNE', 'NEbN', 'NE', 'NEbE', 'ENE', 'EbN',
+        'E', 'EbS', 'ESE', 'SEbE', 'SE', 'SEbS', 'SSE', 'SbE',
+        'S', 'SbW', 'SSW', 'SWbS', 'SW', 'SWbW', 'WSW', 'WbS',
+        'W', 'WbN', 'WNW', 'NWbW', 'NW', 'NWbN', 'NNW', 'NbW'
+    ];
+    return abbreviations.map((abbr, idx) => ({
+        abbreviation: abbr,
+        azimuth: idx * 11.25
+    }));
 }
-
 
 /**
  * Expand the braces of the specified string.
@@ -56,9 +64,57 @@ function createCompassPoints() {
  *   'nothing to do' => 'nothing to do'
  */
 function* expandBraces(str) {
-    throw new Error('Not implemented');
-}
+    function* expandRec(s) {
+        let open = s.indexOf('{');
+        if (open === -1) {
+            yield s;
+            return;
+        }
+        // find matching closing brace
+        let depth = 0;
+        let close = -1;
+        for (let i = open; i < s.length; i++) {
+            if (s[i] === '{') depth++;
+            else if (s[i] === '}') {
+                depth--;
+                if (depth === 0) {
+                    close = i;
+                    break;
+                }
+            }
+        }
+        if (close === -1) {
+            // no matching brace – treat as literal
+            yield s;
+            return;
+        }
+        const prefix = s.slice(0, open);
+        const middle = s.slice(open + 1, close);
+        const suffix = s.slice(close + 1);
+        // split middle by commas ignoring nested braces
+        const alternatives = [];
+        let start = 0;
+        depth = 0;
+        for (let i = 0; i < middle.length; i++) {
+            if (middle[i] === '{') depth++;
+            else if (middle[i] === '}') depth--;
+            else if (middle[i] === ',' && depth === 0) {
+                alternatives.push(middle.slice(start, i));
+                start = i + 1;
+            }
+        }
+        alternatives.push(middle.slice(start));
 
+        for (const alt of alternatives) {
+            for (const expandedAlt of expandRec(alt)) {
+                for (const expandedSuffix of expandRec(suffix)) {
+                    yield prefix + expandedAlt + expandedSuffix;
+                }
+            }
+        }
+    }
+    yield* expandRec(str);
+}
 
 /**
  * Returns the ZigZag matrix
@@ -88,12 +144,34 @@ function* expandBraces(str) {
  *
  */
 function getZigZagMatrix(n) {
-    throw new Error('Not implemented');
+    const matrix = Array.from({ length: n }, () => new Array(n).fill(0));
+    let num = 0;
+    for (let s = 0; s < 2 * n - 1; s++) {
+        if (s % 2 === 0) {
+            // even diagonal: bottom-left to top-right
+            let row = Math.min(s, n - 1);
+            let col = s - row;
+            while (row >= 0 && col < n) {
+                matrix[row][col] = num++;
+                row--;
+                col++;
+            }
+        } else {
+            // odd diagonal: top-right to bottom-left
+            let col = Math.min(s, n - 1);
+            let row = s - col;
+            while (col >= 0 && row < n) {
+                matrix[row][col] = num++;
+                row++;
+                col--;
+            }
+        }
+    }
+    return matrix;
 }
 
-
 /**
- * Returns true if specified subset of dominoes can be placed in a row accroding to the game rules.
+ * Returns true if specified subset of dominoes can be placed in a row according to the game rules.
  * Dominoes details see at: https://en.wikipedia.org/wiki/Dominoes
  *
  * Each domino tile presented as an array [x,y] of tile value.
@@ -113,9 +191,53 @@ function getZigZagMatrix(n) {
  *
  */
 function canDominoesMakeRow(dominoes) {
-    throw new Error('Not implemented');
-}
+    if (dominoes.length === 0) return false;
+    const degree = new Map();
+    const adj = new Map();
 
+    for (const [a, b] of dominoes) {
+        degree.set(a, (degree.get(a) || 0) + 1);
+        degree.set(b, (degree.get(b) || 0) + 1);
+        if (!adj.has(a)) adj.set(a, new Set());
+        if (!adj.has(b)) adj.set(b, new Set());
+        adj.get(a).add(b);
+        adj.get(b).add(a);
+    }
+
+    // find first node with degree > 0 for BFS
+    let start = null;
+    for (const [node, deg] of degree.entries()) {
+        if (deg > 0) {
+            start = node;
+            break;
+        }
+    }
+    if (start === null) return false; // no dominoes? but length>0 guarantee
+
+    const visited = new Set();
+    const queue = [start];
+    visited.add(start);
+    while (queue.length) {
+        const node = queue.shift();
+        for (const neighbor of adj.get(node) || []) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push(neighbor);
+            }
+        }
+    }
+
+    // all nodes with positive degree must be visited
+    for (const [node, deg] of degree.entries()) {
+        if (deg > 0 && !visited.has(node)) return false;
+    }
+
+    let oddCount = 0;
+    for (const deg of degree.values()) {
+        if (deg % 2 === 1) oddCount++;
+    }
+    return oddCount === 0 || oddCount === 2;
+}
 
 /**
  * Returns the string expression of the specified ordered list of integers.
@@ -137,13 +259,31 @@ function canDominoesMakeRow(dominoes) {
  * [ 1, 2, 4, 5]          => '1,2,4,5'
  */
 function extractRanges(nums) {
-    throw new Error('Not implemented');
+    if (nums.length === 0) return '';
+    const result = [];
+    let i = 0;
+    while (i < nums.length) {
+        let start = nums[i];
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) {
+            j++;
+        }
+        if (j - i >= 2) {
+            result.push(`${start}-${nums[j]}`);
+        } else {
+            for (let k = i; k <= j; k++) {
+                result.push(`${nums[k]}`);
+            }
+        }
+        i = j + 1;
+    }
+    return result.join(',');
 }
 
 module.exports = {
-    createCompassPoints : createCompassPoints,
-    expandBraces : expandBraces,
-    getZigZagMatrix : getZigZagMatrix,
-    canDominoesMakeRow : canDominoesMakeRow,
-    extractRanges : extractRanges
+    createCompassPoints: createCompassPoints,
+    expandBraces: expandBraces,
+    getZigZagMatrix: getZigZagMatrix,
+    canDominoesMakeRow: canDominoesMakeRow,
+    extractRanges: extractRanges
 };
